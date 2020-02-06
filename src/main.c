@@ -12,8 +12,11 @@
 /*
  * Tasks
  */
-portTASK_FUNCTION_PROTO(vApplicationTaskTest, pvParameters);
-portTASK_FUNCTION_PROTO(vApplicationTaskTest2, pvParameters);
+portTASK_FUNCTION_PROTO(vTask1, pvParameters);
+portTASK_FUNCTION_PROTO(vTask2, pvParameters);
+
+#define mainDELAY_LOOP_COUNT   40000
+
 
 /*
  * define GPIO Board LEDs
@@ -31,26 +34,27 @@ int main(int argc, char* argv[])
   UART_CLIInit();
   GPIO_Init();
   while (1)
-     {
+  {
 
 
-     xTaskCreate(vApplicationTaskTest, "TestTask", configMINIMAL_STACK_SIZE, (void * ) NULL, tskIDLE_PRIORITY+1UL, NULL);
-     xTaskCreate(vApplicationTaskTest2, "TestTask2", configMINIMAL_STACK_SIZE, (void * ) NULL, tskIDLE_PRIORITY+1UL, NULL);
+     xTaskCreate(vTask1, "Task1", configMINIMAL_STACK_SIZE, (void * ) NULL, tskIDLE_PRIORITY+1UL, NULL);
+     xTaskCreate(vTask2, "Task2", configMINIMAL_STACK_SIZE, (void * ) NULL, tskIDLE_PRIORITY+1UL, NULL);
 
      /* Start the scheduler. */
      vTaskStartScheduler();
 
      /* Should never be reached */
      for( ;; );
-     }
- }
+   }
+}
 
 
 
 
- void vApplicationTickHook( void ){
+ void vApplicationTickHook( void )
+ {
 
-   trace_printf("Entered vApplicationTickHook\n");
+   //trace_printf("Entered vApplicationTickHook\n");
 
  }
 
@@ -78,19 +82,31 @@ int main(int argc, char* argv[])
   * Tasks
   */
 
- void vApplicationTaskTest( void *pvParameters){
+ void vTask1( void *pvParameters)
+ {
+   volatile unsigned long ul = 0;
+   while(1)
+   {
+     trace_printf("Task1 is running\n");
+     /* Delay for a period. */
+     for( ul = 0; ul < mainDELAY_LOOP_COUNT; ul++ )
+     {
+     }
+  }
+}
 
-   while(1){
-     trace_printf("In Task vApplicationTaskTest\n");
+ void vTask2( void *pvParameters)
+ {
+   volatile unsigned long ul = 0;
+   while(1)
+   {
+     trace_printf("Task2 is running\n");
+
+     for( ul = 0; ul < mainDELAY_LOOP_COUNT; ul++ )
+     {
+     }
    }
- }
-
- void vApplicationTaskTest2( void *pvParameters){
-
-   while(1){
-     trace_printf("\tIn Task vApplicationTaskTest2\n");
-   }
- }
+}
 
 
 
