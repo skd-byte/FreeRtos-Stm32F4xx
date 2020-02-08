@@ -12,8 +12,10 @@
 /*
  * Tasks
  */
-portTASK_FUNCTION_PROTO(vTask1, pvParameters);
-portTASK_FUNCTION_PROTO(vTask2, pvParameters);
+portTASK_FUNCTION_PROTO(vTask, pvParameters);
+
+static const char *TaskFirstInsatnceMsg  = "Task1 is running\r\n";
+static const char *TaskSecondInsatnceMsg = "Task2 is running\r\n";
 
 #define mainDELAY_LOOP_COUNT   40000
 
@@ -37,8 +39,8 @@ int main(int argc, char* argv[])
   {
 
 
-     xTaskCreate(vTask1, "Task1", configMINIMAL_STACK_SIZE, (void * ) NULL, tskIDLE_PRIORITY+1UL, NULL);
-     xTaskCreate(vTask2, "Task2", configMINIMAL_STACK_SIZE, (void * ) NULL, tskIDLE_PRIORITY+1UL, NULL);
+     xTaskCreate(vTask, "Task1", 150, (void*)TaskFirstInsatnceMsg, 1, NULL);
+     xTaskCreate(vTask, "Task2", 150, (void*)TaskSecondInsatnceMsg, 1, NULL);
 
      /* Start the scheduler. */
      vTaskStartScheduler();
@@ -82,33 +84,18 @@ int main(int argc, char* argv[])
   * Tasks
   */
 
- void vTask1( void *pvParameters)
+ void vTask( void *pvParameters)
  {
    volatile unsigned long ul = 0;
    while(1)
    {
-     trace_printf("Task1 is running\n");
+     trace_printf((char*)pvParameters);
      /* Delay for a period. */
      for( ul = 0; ul < mainDELAY_LOOP_COUNT; ul++ )
      {
      }
   }
 }
-
- void vTask2( void *pvParameters)
- {
-   volatile unsigned long ul = 0;
-   while(1)
-   {
-     trace_printf("Task2 is running\n");
-
-     for( ul = 0; ul < mainDELAY_LOOP_COUNT; ul++ )
-     {
-     }
-   }
-}
-
-
 
 
 void GPIO_Init(void)
