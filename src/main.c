@@ -14,6 +14,7 @@
  */
 portTASK_FUNCTION_PROTO(vTask, pvParameters);
 
+
 static const char *TaskFirstInsatnceMsg  = "Task1 is running\r\n";
 static const char *TaskSecondInsatnceMsg = "Task2 is running\r\n";
 
@@ -39,9 +40,8 @@ int main(int argc, char* argv[])
   {
 
 
-     xTaskCreate(vTask, "Task1", 150, (void*)TaskFirstInsatnceMsg, 1, NULL);
-     xTaskCreate(vTask, "Task2", 150, (void*)TaskSecondInsatnceMsg, 2, NULL);
-
+     xTaskCreate(vTask,     "Task1", 150, (void*)TaskFirstInsatnceMsg, 1, NULL);
+     xTaskCreate(vTask,     "Task2", 150, (void*)TaskSecondInsatnceMsg, 2, NULL);
      /* Start the scheduler. */
      vTaskStartScheduler();
 
@@ -52,19 +52,6 @@ int main(int argc, char* argv[])
 
 
 
-
- void vApplicationTickHook( void )
- {
-
-   //trace_printf("Entered vApplicationTickHook\n");
-
- }
-
- void vApplicationIdleHook( void ){
-
-   trace_printf("Entered vApplicationIdleHook\n");
-
- }
 
  void vApplicationMallocFailedHook( void ){
 
@@ -86,17 +73,13 @@ int main(int argc, char* argv[])
 
  void vTask( void *pvParameters)
  {
-   volatile unsigned long ul = 0;
    while(1)
    {
      trace_printf((char*)pvParameters);
      /* Delay for a period. */
-     for( ul = 0; ul < mainDELAY_LOOP_COUNT; ul++ )
-     {
-     }
+     vTaskDelay( pdMS_TO_TICKS( 100 ) );
   }
 }
-
 
 void GPIO_Init(void)
 {
