@@ -40,7 +40,7 @@ int main(int argc, char* argv[])
 
 
      xTaskCreate(vTask, "Task1", 150, (void*)TaskFirstInsatnceMsg, 1, NULL);
-     xTaskCreate(vTask, "Task2", 150, (void*)TaskSecondInsatnceMsg, 1, NULL);
+     xTaskCreate(vTask, "Task2", 150, (void*)TaskSecondInsatnceMsg, 2, NULL);
 
      /* Start the scheduler. */
      vTaskStartScheduler();
