@@ -12,14 +12,13 @@
 /*
  * Tasks
  */
-portTASK_FUNCTION_PROTO(vContinuousProcessingTask, pvParameters);
-portTASK_FUNCTION_PROTO(vPeriodicTask, pvParameters);
+portTASK_FUNCTION_PROTO(vTask, pvParameters);
 
-static const char *TaskFirstInsatnceMsg  = "Continuous Task1 is running\n";
-static const char *TaskSecondInsatnceMsg = "Continuous Task2 is running\n";
-const char *pcTextForPeriodicTask        = "Periodic Task is running\n";
+static uint32_t ulIdleCycleCount = 0UL;
 
-#define mainDELAY_LOOP_COUNT   40000
+static const char *TaskFirstInsatnceMsg  = "Task1 is running";
+static const char *TaskSecondInsatnceMsg = "Task2 is running";
+
 
 /*
  * define GPIO Board LEDs
@@ -38,10 +37,9 @@ int main(int argc, char* argv[])
   GPIO_Init();
   while (1)
   {
-     xTaskCreate(vContinuousProcessingTask, "Task1", 150, (void*)TaskFirstInsatnceMsg,  1, NULL);
-     xTaskCreate(vContinuousProcessingTask, "Task2", 150, (void*)TaskSecondInsatnceMsg, 1, NULL);
+     xTaskCreate(vTask, "Task1", 150, (void*)TaskFirstInsatnceMsg,  1, NULL);
+     xTaskCreate(vTask, "Task2", 150, (void*)TaskSecondInsatnceMsg, 2, NULL);
 
-     xTaskCreate( vPeriodicTask, "Task 3", 1000, (void*)pcTextForPeriodicTask, 2, NULL );
      /* Start the scheduler. */
      vTaskStartScheduler();
 
@@ -50,6 +48,13 @@ int main(int argc, char* argv[])
    }
 }
 
+/* Idle hook functions MUST be called vApplicationIdleHook(), take no parameters,
+and return void. */
+void vApplicationIdleHook( void )
+{
+  /* This hook function does nothing but increment a counter. */
+  ulIdleCycleCount++;
+}
 
 void vApplicationMallocFailedHook( void )
 {
@@ -68,46 +73,30 @@ void vApplicationStackOverflowHook( TaskHandle_t pxTask, char *pcTaskName)
 /*
  * Tasks
  */
-void vContinuousProcessingTask( void *pvParameters )
+void vTask( void *pvParameters )
 {
   char *pcTaskName;
+  const TickType_t xDelay250ms = pdMS_TO_TICKS( 250UL );
 
-   /* The string to print out is passed in via the parameter.  Cast this to a
-   character pointer. */
-   pcTaskName = ( char * ) pvParameters;
+    /* The string to print out is passed in via the parameter.  Cast this to a
+    character pointer. */
+    pcTaskName = ( char * ) pvParameters;
 
-   /* As per most tasks, this task is implemented in an infinite loop. */
-   for( ;; )
-   {
-     /* Print out the name of this task.  This task just does this repeatedly
-     without ever blocking or delaying. */
-     trace_printf( pcTaskName );
-   }
+    /* As per most tasks, this task is implemented in an infinite loop. */
+    for( ;; )
+    {
+      /* Print out the name of this task AND the number of times ulIdleCycleCount
+          has been incremented. */
+      trace_printf("%s\nIdleCount= %d\n", pcTaskName, ulIdleCycleCount );
+
+      /* Delay for a period.  This time we use a call to vTaskDelay() which
+      puts the task into the Blocked state until the delay period has expired.
+      The delay period is specified in 'ticks'. */
+      vTaskDelay( xDelay250ms );
+    }
 }
 
-uint32_t count = 5;
 
-void vPeriodicTask( void *pvParameters )
-{
-  TickType_t xLastWakeTime;
-  const TickType_t xDelay5ms = pdMS_TO_TICKS( 5UL );
-
-   /* The xLastWakeTime variable needs to be initialized with the current tick
-   count.  Note that this is the only time we access this variable.  From this
-   point on xLastWakeTime is managed automatically by the vTaskDelayUntil()
-   API function. */
-   xLastWakeTime = xTaskGetTickCount();
-
-   /* As per most tasks, this task is implemented in an infinite loop. */
-   for( ;; )
-   {
-     /* Print out the name of this task. */
-     trace_printf( "Periodic Task is running\n");
-
-     /* We want this task to execute exactly every 5 milliseconds. */
-     vTaskDelayUntil( &xLastWakeTime, xDelay5ms );
-   }
-}
 
 void GPIO_Init(void)
 {
