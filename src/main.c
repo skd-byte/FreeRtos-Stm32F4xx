@@ -29,49 +29,26 @@ static uint32_t ulIdleCycleCount = 0UL;
 void Toggle_LED(void);
 void GPIO_Init(void);
 
-/* Declare a variable of type QueueHandle_t. This is used to store the handle
- to the queue that is accessed by all three tasks. */
- QueueHandle_t xQueue;
+/* Declare a variable of type QueueHandle_t to hold the handle of the queue being created. */
+QueueHandle_t xQueue;
 
- typedef enum
- {
-   Sender1,
-   Sender2,
- }eDataId;
-
- typedef struct
- {
-   eDataId ID;
-   int32_t val;
- }Data_t;
-
- Data_t data[2] = {
-                    {Sender1, 100},
-                    {Sender2, 200},
-                  };
 
 int main(int argc, char* argv[])
 {
   UART_CLIInit();
   GPIO_Init();
 
-  xQueue = xQueueCreate( 3, sizeof( Data_t ) );
-
+  xQueue = xQueueCreate( 5, sizeof( char * ) );
 
   if(xQueue != NULL)
-  {
-    xTaskCreate( vTaskSender, "Sender1", 1000,(void *) &data[0], 2, NULL );
-    xTaskCreate( vTaskSender, "Sender2", 1000,(void *) &data[1], 2, NULL );
+    {
+      xTaskCreate( vTaskSender, "Sender1", 1000, NULL, 2, NULL );
 
-    xTaskCreate( vTaskReceiver, "Receiver",1000, NULL,1 ,NULL);
+      xTaskCreate( vTaskReceiver, "Receiver",1000, NULL,1 ,NULL);
 
-    /* Start the scheduler so the created tasks start executing. */
-    vTaskStartScheduler();
-  }
-  else
-  {
-    // Queue could not be creaated
-  }
+      /* Start the scheduler so the created tasks start executing. */
+      vTaskStartScheduler();
+    }
 
   for( ;; );
   return 0;
@@ -80,21 +57,22 @@ int main(int argc, char* argv[])
 
 void vTaskSender( void *pvParameters )
 {
-  BaseType_t xStatus;
-  const TickType_t xTicksToWait = pdMS_TO_TICKS( 100 );
+  char *pcStringToSend;
+  const size_t xMaxStringLength = 50;
+  BaseType_t xStringNumber = 0;
+
   /* As per most tasks, this task is implemented within an infinite loop. */
   for( ;; )
   {
+    pcStringToSend = ( char * ) malloc( xMaxStringLength );
+    /* Write a string into the buffer. */
+    snprintf( pcStringToSend, xMaxStringLength, "String number %d\r\n", xStringNumber );
+    /* Increment the counter so the string is different on each iteration of this task. */
+    xStringNumber++;
 
-
-    xStatus = xQueueSendToBack( xQueue, pvParameters, xTicksToWait );
-    if( xStatus != pdPASS )
-    {
-      /* The send operation could not complete because the queue was full -
-      this must be an error as the queue should never contain more than
-      one item! */
-      trace_printf( "Could not send to the queue.\r\n" );
-    }
+    xQueueSend( xQueue, /* The handle of the queue. */
+               &pcStringToSend, /* The address of the pointer that points to the buffer. */
+               portMAX_DELAY );
   }
 }
 
@@ -102,37 +80,17 @@ void vTaskSender( void *pvParameters )
 
 void vTaskReceiver( void *pvParameters )
 {
-  Data_t xReceivedStructure;
-  BaseType_t xStatus;
-  /* This task is also defined within an infinite loop. */
+  char *pcReceivedString;
   for( ;; )
   {
-    if( uxQueueMessagesWaiting( xQueue ) != 3 )
-    {
-      trace_printf( "Queue should be full!\r\n" );
-    }
-
-    xStatus = xQueueReceive( xQueue, &xReceivedStructure, 0 );
-    if( xStatus == pdPASS )
-    {
-      /* Data was successfully received from the queue, print out the received
-      value and the source of the value. */
-      if( xReceivedStructure.ID == Sender1 )
-      {
-        trace_printf( "From Sender 1 = %d\n", xReceivedStructure.val );
-      }
-      else
-      {
-        trace_printf( "From Sender 2 = %d\n", xReceivedStructure.val );
-      }
-    }
-    else
-    {
-      /* Data was not received from the queue even after waiting for 100ms.
-      This must be an error as the sending tasks are free running and will be
-      continuously writing to the queue. */
-      trace_printf( "Could not receive from the queue.\r\n" );
-    }
+    /* Receive the address of a buffer. */
+    xQueueReceive( xQueue, /* The handle of the queue. */
+    &pcReceivedString, /* Store the buffer’s address in pcReceivedString. */
+    portMAX_DELAY );
+    /* The buffer holds a string, print it out. */
+    trace_printf(pcReceivedString );
+    /* The buffer is not required any more - release it so it can be freed, or re-used. */
+    free( pcReceivedString );
   }
 }
 
@@ -170,4 +128,3 @@ void Toggle_LED(void)
 {
   GPIOA->ODR ^= RED;
 }
-
