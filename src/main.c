@@ -11,11 +11,8 @@
 /*
  * Tasks
  */
-portTASK_FUNCTION_PROTO(vReadMailbox, pvParameters);
-portTASK_FUNCTION_PROTO(vUpdateMailbox, pvParameters);
 
-void vAutoReloadTimerCallback(TimerHandle_t xTimer);
-void vOneShotTimerCallback(TimerHandle_t xTimer);
+void prvTimerCallback(TimerHandle_t xTimer);
 
 static uint32_t ulIdleCycleCount = 0UL;
 /*
@@ -28,6 +25,7 @@ static uint32_t ulIdleCycleCount = 0UL;
 void Toggle_LED(void);
 void GPIO_Init(void);
 
+TimerHandle_t xAutoReloadTimer, xOneShotTimer;
 
 
 /* The periods assigned to the one-shot and auto-reload timers are 3.333 second and half a second respectively. */
@@ -38,7 +36,7 @@ int main(int argc, char* argv[])
 {
   UART_CLIInit();
   GPIO_Init();
-  TimerHandle_t xAutoReloadTimer, xOneShotTimer;
+
   BaseType_t xTimer1Started, xTimer2Started;
   /* Create the one shot timer, storing the handle to the created timer in xOneShotTimer. */
   xOneShotTimer = xTimerCreate(
@@ -51,7 +49,7 @@ int main(int argc, char* argv[])
   /* This example does not use the timer id. */
   0,
   /* The callback function to be used by the software timer being created. */
-  vOneShotTimerCallback );
+  prvTimerCallback );
 
   /* Create the auto-reload timer, storing the handle to the created timer in xAutoReloadTimer. */
   xAutoReloadTimer = xTimerCreate(
@@ -64,7 +62,8 @@ int main(int argc, char* argv[])
   /* This example does not use the timer id. */
   0,
   /* The callback function to be used by the software timer being created. */
-  vAutoReloadTimerCallback );
+  prvTimerCallback );
+
   /* Check the software timers were created. */
   if( ( xOneShotTimer != NULL ) && ( xAutoReloadTimer != NULL ) )
   {
@@ -89,24 +88,40 @@ int main(int argc, char* argv[])
 }
 
 
-void vOneShotTimerCallback(TimerHandle_t xTimer)
+void prvTimerCallback(TimerHandle_t xTimer)
 {
   TickType_t xTimeNow;
+  uint32_t ulExecutionCount;
+  /* A count of the number of times this software timer has expired is stored in the timer's
+  ID. Obtain the ID, increment it, then save it as the new ID value. The ID is a void
+  pointer, so is cast to a uint32_t. */
+  ulExecutionCount = ( uint32_t ) pvTimerGetTimerID( xTimer );
+  ulExecutionCount++;
+  vTimerSetTimerID( xTimer, ( void * ) ulExecutionCount );
   /* Obtain the current tick count. */
   xTimeNow = xTaskGetTickCount();
-  /* Output a string to show the time at which the callback was executed. */
-  trace_printf( "One-shot timer callback executing=%d\n", xTimeNow );
-}
-
-
-
-void vAutoReloadTimerCallback(TimerHandle_t xTimer)
-{
-  TickType_t xTimeNow;
-  /* Obtain the current tick count. */
-  xTimeNow = xTaskGetTickCount();
-  /* Output a string to show the time at which the callback was executed. */
-  trace_printf( "Auto-reload timer callback executing=%d\n", xTimeNow );
+  /* The handle of the one-shot timer was stored in xOneShotTimer when the timer was created.
+  Compare the handle passed into this function with xOneShotTimer to determine if it was the
+  one-shot or auto-reload timer that expired, then output a string to show the time at which
+  the callback was executed. */
+  if( xTimer == xOneShotTimer)
+  {
+    trace_printf( "One-shot timer callback executing=%d\n", xTimeNow );
+  }
+  else
+  {
+    /* xTimer did not equal xOneShotTimer, so it must have been the auto-reload timer that
+    expired. */
+    trace_printf( "Auto-reload timer callback executing=%d\n", xTimeNow );
+    if( ulExecutionCount == 5 )
+    {
+      /* Stop the auto-reload timer after it has executed 5 times. This callback function
+      executes in the context of the RTOS daemon task so must not call any functions that
+      might place the daemon task into the Blocked state. Therefore a block time of 0 is
+      used. */
+      xTimerStop( xTimer, 0 );
+    }
+  }
 }
 
 /* Idle hook functions MUST be called vApplicationIdleHook(), take no parameters,
