@@ -41,7 +41,7 @@ portTASK_FUNCTION_PROTO(vHandlerTask, pvParameters);
 
 
 
-SemaphoreHandle_t xBinarySemaphore;
+SemaphoreHandle_t  xCountingSemaphore;
 
 int main( void )
 {
@@ -49,11 +49,10 @@ int main( void )
   GPIO_Init();
   EXTILine13_Host_Config();
 
-  /* Before a semaphore is used it must be explicitly created. In this example
-  a binary semaphore is created. */
-  xBinarySemaphore = xSemaphoreCreateBinary();
+  /* Before a semaphore is used it must be explicitly created. In this example a counting semaphore is created. The semaphore is created to have a maximum count value of 10, and an initial count value of 0. */
+  xCountingSemaphore = xSemaphoreCreateCounting( 10, 0 );
   /* Check the semaphore was created successfully. */
-  if( xBinarySemaphore != NULL )
+  if( xCountingSemaphore != NULL )
   {
     /* Create the 'handler' task, which is the task to which interrupt
     processing is deferred. This is the task that will be synchronized with
@@ -78,7 +77,7 @@ void vHandlerTask( void *pvParameters )
     time. The task blocks indefinitely, meaning this function call will only
     return once the semaphore has been successfully obtained - so there is
     no need to check the value returned by xSemaphoreTake(). */
-    xSemaphoreTake( xBinarySemaphore, portMAX_DELAY );
+    xSemaphoreTake( xCountingSemaphore, portMAX_DELAY );
     /* To get here the event must have occurred. Process the event (in this
     Case, just print out a message). */
     trace_printf( "Handler task - Processing event.\r\n" );
@@ -151,18 +150,26 @@ void ExternalInterrupt_callback()
   Toggle_LED();
 
   BaseType_t xHigherPriorityTaskWoken;
-  /* The xHigherPriorityTaskWoken parameter must be initialized to pdFALSE as
-  it will get set to pdTRUE inside the interrupt safe API function if a
-  context switch is required. */
+  /* The xHigherPriorityTaskWoken parameter must be initialized to pdFALSE as it
+  will get set to pdTRUE inside the interrupt safe API function if a context switch
+  is required. */
   xHigherPriorityTaskWoken = pdFALSE;
-  /* 'Give' the semaphore to unblock the task, passing in the address of
-  xHigherPriorityTaskWoken as the interrupt safe API function's
-  pxHigherPriorityTaskWoken parameter. */
-  xSemaphoreGiveFromISR( xBinarySemaphore, &xHigherPriorityTaskWoken );
+  /* 'Give' the semaphore multiple times. The first will unblock the deferred
+  interrupt handling task, the following 'gives' are to demonstrate that the
+  semaphore latches the events to allow the task to which interrupts are deferred
+  to process them in turn, without events getting lost. This simulates multiple
+  interrupts being received by the processor, even though in this case the events
+  are simulated within a single interrupt occurrence. */
+  trace_printf( "Interrupt Generated.\r\n" );
+  xSemaphoreGiveFromISR( xCountingSemaphore, &xHigherPriorityTaskWoken );
+  xSemaphoreGiveFromISR( xCountingSemaphore, &xHigherPriorityTaskWoken );
+  xSemaphoreGiveFromISR( xCountingSemaphore, &xHigherPriorityTaskWoken );
   /* Pass the xHigherPriorityTaskWoken value into portYIELD_FROM_ISR(). If
-  xHigherPriorityTaskWoken was set to pdTRUE inside xSemaphoreGiveFromISR()
-  then calling portYIELD_FROM_ISR() will request a context switch. If
-  xHigherPriorityTaskWoken is still pdFALSE then calling
-  portYIELD_FROM_ISR() will have no effect. */
-  portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
+  xHigherPriorityTaskWoken was set to pdTRUE inside xSemaphoreGiveFromISR() then
+  calling portYIELD_FROM_ISR() will request a context switch. If
+  xHigherPriorityTaskWoken is still pdFALSE then calling portYIELD_FROM_ISR() will
+  have no effect. Unlike most FreeRTOS ports, the Windows port requires the ISR to
+  return a value - the return statement is inside the Windows version of
+  portYIELD_FROM_ISR(). */
+  portYIELD_FROM_ISR( xHigherPriorityTaskWoken );
 }
