@@ -36,124 +36,56 @@ void GPIO_Init(void);
 
 
 
-portTASK_FUNCTION_PROTO(vKeyHitTask, pvParameters);
-void prvBacklightTimerCallback( TimerHandle_t xTimer );
+portTASK_FUNCTION_PROTO(vHandlerTask, pvParameters);
 
 
-/*-----------------------------------------------------------*/
-
-/* This example does not have a real backlight to turn on and off, so the
-following variable is used to just hold the state of the backlight. */
-static BaseType_t xSimulatedBacklightOn = pdFALSE;
-
-/* The software timer used to turn the backlight off. */
-static TimerHandle_t xBacklightTimer = NULL;
 
 
+SemaphoreHandle_t xBinarySemaphore;
 
 int main( void )
 {
-
   UART_CLIInit();
-
   GPIO_Init();
   EXTILine13_Host_Config();
 
-  /* The backlight is off at the start. */
-  xSimulatedBacklightOn = pdFALSE;
+  /* Before a semaphore is used it must be explicitly created. In this example
+  a binary semaphore is created. */
+  xBinarySemaphore = xSemaphoreCreateBinary();
+  /* Check the semaphore was created successfully. */
+  if( xBinarySemaphore != NULL )
+  {
+    /* Create the 'handler' task, which is the task to which interrupt
+    processing is deferred. This is the task that will be synchronized with
+    the interrupt. The handler task is created with a high priority to ensure
+    it runs immediately after the interrupt exits. In this case a priority of
+    3 is chosen. */
+    xTaskCreate( vHandlerTask, "Handler", 1000, NULL, 3, NULL );
 
-  /* Create the one shot timer, storing the handle to the created timer in
-  xOneShotTimer. */
-  xBacklightTimer = xTimerCreate( "Backlight",        /* Text name for the timer - not used by FreeRTOS. */
-                mainBACKLIGHT_TIMER_PERIOD, /* The timer's period in ticks. */
-                pdFALSE,          /* Set uxAutoRealod to pdFALSE to create a one-shot timer. */
-                0,              /* The timer ID is not used in this example. */
-                prvBacklightTimerCallback );/* The callback function to be used by the timer being created. */
-
-
-  xTaskCreate( vKeyHitTask, "Key poll", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, NULL );
-
-  /* Start the timer. */
-  xTimerStart( xBacklightTimer, 0 );
-
-  /* Start the scheduler. */
-  vTaskStartScheduler();
-
+    vTaskStartScheduler();
+  }
+  /* As normal, the following line should never be reached. */
   for( ;; );
-  return 0;
 }
 
-
-void prvBacklightTimerCallback( TimerHandle_t xTimer )
+void vHandlerTask( void *pvParameters )
 {
-  TickType_t xTimeNow = xTaskGetTickCount();
-
-  /* The backlight timer expired, turn the backlight off. */
-  xSimulatedBacklightOn = pdFALSE;
-
-  /* Print the time at which the backlight was turned off. */
-  trace_printf( "Timer expired, turning backlight OFF at time\t %d\n", xTimeNow );
-}
-
-
-void vKeyHitTask( void *pvParameters )
-{
-  const TickType_t xShortDelay = pdMS_TO_TICKS( 50 );
-  TickType_t xTimeNow;
-
-  trace_printf( "Press a key to turn the backlight on.\r\n" );
-
+  /* As per most tasks, this task is implemented within an infinite loop. */
   for( ;; )
   {
-    /* Has a key been pressed? */
-    if( (GPIOC->IDR & GPIO_PIN_13 )== 0 )
-    {
-      /* Record the time at which the key press was noted. */
-      xTimeNow = xTaskGetTickCount();
-
-      /* A key has been pressed. */
-      if( xSimulatedBacklightOn == pdFALSE )
-      {
-        /* The backlight was off so turn it on and print the time at
-        which it was turned on. */
-        xSimulatedBacklightOn = pdTRUE;
-        trace_printf( "Key pressed, turning backlight ON at time\t %d\n", xTimeNow );
-      }
-      else
-      {
-        /* The backlight was already on so print a message to say the
-        backlight is about to be reset and the time at which it was
-        reset. */
-        trace_printf( "Key pressed, resetting software timer at time\t %d\n", xTimeNow );
-      }
-
-      /* Reset the software timer.  If the backlight was previously off
-      this call will start the timer.  If the backlight was previously on
-      this call will restart the timer.  A real application will probably
-      read key presses in an interrupt.  If this function was an interrupt
-      service routine then xTimerResetFromISR() must be used instead of
-      xTimerReset(). */
-      xTimerReset( xBacklightTimer, xShortDelay );
-    }
-
-    /* Don't poll too quickly. */
-    vTaskDelay( xShortDelay );
+    /* Use the semaphore to wait for the event. The semaphore was created
+    before the scheduler was started, so before this task ran for the first
+    time. The task blocks indefinitely, meaning this function call will only
+    return once the semaphore has been successfully obtained - so there is
+    no need to check the value returned by xSemaphoreTake(). */
+    xSemaphoreTake( xBinarySemaphore, portMAX_DELAY );
+    /* To get here the event must have occurred. Process the event (in this
+    Case, just print out a message). */
+    trace_printf( "Handler task - Processing event.\r\n" );
   }
 }
 
 
-
- void vApplicationTickHook( void )
- {
-
-
- }
-
- void vApplicationIdleHook( void )
- {
-
-
- }
 
  void vApplicationMallocFailedHook( void )
  {
@@ -193,13 +125,13 @@ void EXTILine13_Host_Config()
   RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN;
   RCC->AHB1ENR           |= RCC_AHB1ENR_GPIOCEN;               // enable clock
   MCU_IRQ_PORT->MODER   &= (uint32_t)~(GPIO_MODER_MODER13);    // input mode
-  // MCU_IRQ_PORT->PUPDR   |= (uint32_t)(GPIO_PUPDR_PUPDR13_0);    // input pull down
 
   SYSCFG->EXTICR[3] = SYSCFG_EXTICR4_EXTI13_PC ;
   EXTI->IMR  |= EXTI_IMR_MR13;          // unmasked the interrupt
   EXTI->FTSR |= EXTI_FTSR_TR13;         // rising edge tringger on line 13
 
-  NVIC_SetPriority(EXTI15_10_IRQn, 2);  // Enable and set EXTI Line0 Interrupt to the lowest priority
+  NVIC_SetPriority(EXTI15_10_IRQn, 7);  // Enable and set EXTI Line0 Interrupt to the lowest priority
+  // NOTE: This interrupt priority shoul be less than configMAX_SYSCALL_INTERRUPT_PRIORITY
   NVIC_EnableIRQ(EXTI15_10_IRQn);
 }
 
@@ -217,4 +149,20 @@ void EXTI15_10_IRQHandler ()
 void ExternalInterrupt_callback()
 {
   Toggle_LED();
+
+  BaseType_t xHigherPriorityTaskWoken;
+  /* The xHigherPriorityTaskWoken parameter must be initialized to pdFALSE as
+  it will get set to pdTRUE inside the interrupt safe API function if a
+  context switch is required. */
+  xHigherPriorityTaskWoken = pdFALSE;
+  /* 'Give' the semaphore to unblock the task, passing in the address of
+  xHigherPriorityTaskWoken as the interrupt safe API function's
+  pxHigherPriorityTaskWoken parameter. */
+  xSemaphoreGiveFromISR( xBinarySemaphore, &xHigherPriorityTaskWoken );
+  /* Pass the xHigherPriorityTaskWoken value into portYIELD_FROM_ISR(). If
+  xHigherPriorityTaskWoken was set to pdTRUE inside xSemaphoreGiveFromISR()
+  then calling portYIELD_FROM_ISR() will request a context switch. If
+  xHigherPriorityTaskWoken is still pdFALSE then calling
+  portYIELD_FROM_ISR() will have no effect. */
+  portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
 }
