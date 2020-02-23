@@ -34,14 +34,8 @@ void GPIO_Init(void);
 
 #define mainBACKLIGHT_TIMER_PERIOD pdMS_TO_TICKS( 5000 )
 
+void vDeferredHandlingFunction( void *pvParameter1, uint32_t ulParameter2 );
 
-
-portTASK_FUNCTION_PROTO(vHandlerTask, pvParameters);
-
-
-
-
-SemaphoreHandle_t  xCountingSemaphore;
 
 int main( void )
 {
@@ -49,41 +43,18 @@ int main( void )
   GPIO_Init();
   EXTILine13_Host_Config();
 
-  /* Before a semaphore is used it must be explicitly created. In this example a counting semaphore is created. The semaphore is created to have a maximum count value of 10, and an initial count value of 0. */
-  xCountingSemaphore = xSemaphoreCreateCounting( 10, 0 );
-  /* Check the semaphore was created successfully. */
-  if( xCountingSemaphore != NULL )
-  {
-    /* Create the 'handler' task, which is the task to which interrupt
-    processing is deferred. This is the task that will be synchronized with
-    the interrupt. The handler task is created with a high priority to ensure
-    it runs immediately after the interrupt exits. In this case a priority of
-    3 is chosen. */
-    xTaskCreate( vHandlerTask, "Handler", 1000, NULL, 3, NULL );
-
-    vTaskStartScheduler();
-  }
+  /* Start the scheduler so the created task starts executing. */
+  vTaskStartScheduler();
   /* As normal, the following line should never be reached. */
   for( ;; );
 }
 
-void vHandlerTask( void *pvParameters )
+void vDeferredHandlingFunction( void *pvParameter1, uint32_t ulParameter2 )
 {
-  /* As per most tasks, this task is implemented within an infinite loop. */
-  for( ;; )
-  {
-    /* Use the semaphore to wait for the event. The semaphore was created
-    before the scheduler was started, so before this task ran for the first
-    time. The task blocks indefinitely, meaning this function call will only
-    return once the semaphore has been successfully obtained - so there is
-    no need to check the value returned by xSemaphoreTake(). */
-    xSemaphoreTake( xCountingSemaphore, portMAX_DELAY );
-    /* To get here the event must have occurred. Process the event (in this
-    Case, just print out a message). */
-    trace_printf( "Handler task - Processing event.\r\n" );
-  }
+  /* Process the event - in this case just print out a message and the value of
+  ulParameter2. pvParameter1 is not used in this example. */
+  trace_printf( "Handler function - Processing event %d\n\r", ulParameter2 );
 }
-
 
 
  void vApplicationMallocFailedHook( void )
@@ -149,27 +120,25 @@ void ExternalInterrupt_callback()
 {
   Toggle_LED();
 
+  static uint32_t ulParameterValue = 0;
   BaseType_t xHigherPriorityTaskWoken;
-  /* The xHigherPriorityTaskWoken parameter must be initialized to pdFALSE as it
-  will get set to pdTRUE inside the interrupt safe API function if a context switch
-  is required. */
+  /* The xHigherPriorityTaskWoken parameter must be initialized to pdFALSE as it will
+  get set to pdTRUE inside the interrupt safe API function if a context switch is
+  required. */
   xHigherPriorityTaskWoken = pdFALSE;
-  /* 'Give' the semaphore multiple times. The first will unblock the deferred
-  interrupt handling task, the following 'gives' are to demonstrate that the
-  semaphore latches the events to allow the task to which interrupts are deferred
-  to process them in turn, without events getting lost. This simulates multiple
-  interrupts being received by the processor, even though in this case the events
-  are simulated within a single interrupt occurrence. */
-  trace_printf( "Interrupt Generated.\r\n" );
-  xSemaphoreGiveFromISR( xCountingSemaphore, &xHigherPriorityTaskWoken );
-  xSemaphoreGiveFromISR( xCountingSemaphore, &xHigherPriorityTaskWoken );
-  xSemaphoreGiveFromISR( xCountingSemaphore, &xHigherPriorityTaskWoken );
+  /* Send a pointer to the interrupt's deferred handling function to the daemon task.
+  The deferred handling function's pvParameter1 parameter is not used so just set to
+  NULL. The deferred handling function's ulParameter2 parameter is used to pass a
+  number that is incremented by one each time this interrupt handler executes. */
+  xTimerPendFunctionCallFromISR( vDeferredHandlingFunction, /* Function to execute. */
+  NULL, /* Not used. */
+  ulParameterValue, /* Incrementing value. */
+  &xHigherPriorityTaskWoken );
+  ulParameterValue++;
   /* Pass the xHigherPriorityTaskWoken value into portYIELD_FROM_ISR(). If
-  xHigherPriorityTaskWoken was set to pdTRUE inside xSemaphoreGiveFromISR() then
+  xHigherPriorityTaskWoken was set to pdTRUE inside xTimerPendFunctionCallFromISR() then
   calling portYIELD_FROM_ISR() will request a context switch. If
-  xHigherPriorityTaskWoken is still pdFALSE then calling portYIELD_FROM_ISR() will
-  have no effect. Unlike most FreeRTOS ports, the Windows port requires the ISR to
-  return a value - the return statement is inside the Windows version of
-  portYIELD_FROM_ISR(). */
+  xHigherPriorityTaskWoken is still pdFALSE then calling portYIELD_FROM_ISR() will have
+  no effect. */
   portYIELD_FROM_ISR( xHigherPriorityTaskWoken );
 }
