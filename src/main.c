@@ -17,12 +17,6 @@
 #define MCU_IRQ_PORT        GPIOC
 #define SW_INTERRUPT()     (EXTI->SWIER |= EXTI_SWIER_SWIER13)           // software interrupt generated
 
-void EXTILine13_Host_Config();
-void ExternalInterrupt_callback();
-
-
-
-
 /*
  * define GPIO Board LEDs
  */
@@ -33,134 +27,80 @@ void ExternalInterrupt_callback();
 void Toggle_LED(void);
 void GPIO_Init(void);
 
-portTASK_FUNCTION_PROTO(vStringPrinter, pvParameters);
-portTASK_FUNCTION_PROTO(vIntegerGenerator, pvParameters);
+portTASK_FUNCTION_PROTO(prvPrintTask, pvParameters);
+static void prvNewPrintString( const char *pcString );
 
-QueueHandle_t xIntegerQueue, xStringQueue;
+SemaphoreHandle_t xMutex;
 
 int main( void )
 {
   UART_CLIInit();
   GPIO_Init();
-  EXTILine13_Host_Config();
 
-  /* Before a queue can be used it must first be created. Create both queues used
-  by this example. One queue can hold variables of type uint32_t, the other queue
-  can hold variables of type char*. Both queues can hold a maximum of 10 items. A
-  real application should check the return values to ensure the queues have been
-  successfully created. */
-  xIntegerQueue = xQueueCreate( 10, sizeof( uint32_t ) );
-  xStringQueue  = xQueueCreate( 10, sizeof( char * ) );
+  /* Before a semaphore is used it must be explicitly created. In this example a
+  mutex type semaphore is created. */
+  xMutex = xSemaphoreCreateMutex();
 
-  /* Create the task that uses a queue to pass integers to the interrupt service
-  routine. The task is created at priority 1. */
-  xTaskCreate( vIntegerGenerator, "IntGen", 1000, NULL, 1, NULL );
+  /* Check the semaphore was created successfully before creating the tasks. */
+  if( xMutex != NULL )
+  {
+    /* Create two instances of the tasks that write to stdout. The string they
+    write is passed in to the task as the task’s parameter. The tasks are
+    created at different priorities so some pre-emption will occur. */
+    xTaskCreate( prvPrintTask, "Print1", 1000,
+    "Task 1 ***************************************\r\n", 1, NULL );
 
-  /* Create the task that prints out the strings sent to it from the interrupt
-  service routine. This task is created at the higher priority of 2. */
-  xTaskCreate( vStringPrinter, "String", 1000, NULL, 2, NULL );
+    xTaskCreate( prvPrintTask, "Print2", 1000,
+    "Task 2 ---------------------------------------\r\n", 2, NULL );
 
-
-  /* Start the scheduler so the created tasks start executing. */
-  vTaskStartScheduler();
-
-  /* If all is well then main() will never reach here as the scheduler will now be
-  running the tasks. If main() does reach here then it is likely that there was
-  insufficient heap memory available for the idle task to be created. Chapter 2
-  provides more information on heap memory management. */
+    /* Start the scheduler so the created tasks start executing. */
+    vTaskStartScheduler();
+  }
 
   for( ;; );
 }
 
-
-void vIntegerGenerator( void *pvParameters )
+void prvPrintTask( void *pvParameters )
 {
-  TickType_t xLastExecutionTime;
-  uint32_t ulValueToSend = 0;
-  int i;
-  /* Initialize the variable used by the call to vTaskDelayUntil(). */
-  xLastExecutionTime = xTaskGetTickCount();
+  char *pcStringToPrint;
+  const TickType_t xMaxBlockTimeTicks = 0x20;
+
+  /* Two instances of this task are created. The string printed by the task is
+  passed into the task using the task’s parameter. The parameter is cast to the
+  required type. */
+  pcStringToPrint = ( char * ) pvParameters;
   for( ;; )
   {
-    /* This is a periodic task. Block until it is time to run again. The task
-    will execute every 200ms. */
-    vTaskDelayUntil( &xLastExecutionTime, pdMS_TO_TICKS( 200 ) );
-    /* Send five numbers to the queue, each value one higher than the previous
-    value. The numbers are read from the queue by the interrupt service routine.
-    The interrupt service routine always empties the queue, so this task is
-    guaranteed to be able to write all five values without needing to specify a
-    block time. */
-    for( i = 0; i < 5; i++ )
-    {
-      xQueueSendToBack( xIntegerQueue, &ulValueToSend, 0 );
-      ulValueToSend++;
-    }
+    /* Print out the string using the newly defined function. */
+    prvNewPrintString( pcStringToPrint );
 
-    trace_printf( "Generator task - About to generate an interrupt.\r\n" );
-    SW_INTERRUPT();
-    trace_printf( "Generator task - Interrupt generated.\r\n\r\n\r\n" );
+    /* Wait a pseudo random time. Note that rand() is not necessarily reentrant,
+    but in this case it does not really matter as the code does not care what
+    value is returned. In a more secure application a version of rand() that is
+    known to be reentrant should be used - or calls to rand() should be protected
+    using a critical section. */
+    vTaskDelay( ( rand() % xMaxBlockTimeTicks ) );
   }
 }
 
-void vStringPrinter( void *pvParameters )
+static void prvNewPrintString( const char *pcString )
 {
-  char *pcString;
-  for( ;; )
+  /* The mutex is created before the scheduler is started, so already exists by the
+  time this task executes.
+  Attempt to take the mutex, blocking indefinitely to wait for the mutex if it is
+  not available straight away. The call to xSemaphoreTake() will only return when
+  the mutex has been successfully obtained, so there is no need to check the
+  function return value.*/
+  xSemaphoreTake( xMutex, portMAX_DELAY );
   {
-    /* Block on the queue to wait for data to arrive. */
-    xQueueReceive( xStringQueue, &pcString, portMAX_DELAY );
-    /* Print out the string received. */
-    trace_printf( pcString );
-  }
-}
+    /* The following line will only execute once the mutex has been successfully
+    obtained. Standard out can be accessed freely now as only one task can have
+    the mutex at any one time. */
+    UART_Message(pcString );
 
-/* external interrupt callback function */
-void ExternalInterrupt_callback()
-{
-  Toggle_LED();
-  BaseType_t xHigherPriorityTaskWoken;
-  uint32_t ulReceivedNumber;
-  /* The strings are declared static const to ensure they are not allocated on the
-  interrupt service routine's stack, and so exist even when the interrupt service
-  routine is not executing. */
-  static const char *pcStrings[] =
-  {
-    "String 0\r\n",
-    "String 1\r\n",
-    "String 2\r\n",
-    "String 3\r\n"
-  };
-  /* As always, xHigherPriorityTaskWoken is initialized to pdFALSE to be able to
-  detect it getting set to pdTRUE inside an interrupt safe API function. Note that
-  as an interrupt safe API function can only set xHigherPriorityTaskWoken to
-  pdTRUE, it is safe to use the same xHigherPriorityTaskWoken variable in both
-  the call to xQueueReceiveFromISR() and the call to xQueueSendToBackFromISR(). */
-  xHigherPriorityTaskWoken = pdFALSE;
-  /* Read from the queue until the queue is empty. */
-  while( xQueueReceiveFromISR( xIntegerQueue, &ulReceivedNumber, &xHigherPriorityTaskWoken )
-         != errQUEUE_EMPTY )
-  {
-    /* Truncate the received value to the last two bits (values 0 to 3
-    inclusive), then use the truncated value as an index into the pcStrings[]
-    array to select a string (char *) to send on the other queue. */
-    ulReceivedNumber &= 0x03;
-    xQueueSendToBackFromISR( xStringQueue,
-    &pcStrings[ ulReceivedNumber ],
-    &xHigherPriorityTaskWoken );
+    /* The mutex MUST be given back! */
   }
-  /* If receiving from xIntegerQueue caused a task to leave the Blocked state, and
-  if the priority of the task that left the Blocked state is higher than the
-  priority of the task in the Running state, then xHigherPriorityTaskWoken will
-  have been set to pdTRUE inside xQueueReceiveFromISR().
-  If sending to xStringQueue caused a task to leave the Blocked state, and if the
-  priority of the task that left the Blocked state is higher than the priority of
-  the task in the Running state, then xHigherPriorityTaskWoken will have been set
-  to pdTRUE inside xQueueSendToBackFromISR().
-  xHigherPriorityTaskWoken is used as the parameter to portYIELD_FROM_ISR(). If
-  xHigherPriorityTaskWoken equals pdTRUE then calling portYIELD_FROM_ISR() will
-  request a context switch. If xHigherPriorityTaskWoken is still pdFALSE then
-  calling portYIELD_FROM_ISR() will have no effect.*/
-  portYIELD_FROM_ISR( xHigherPriorityTaskWoken );
+  xSemaphoreGive( xMutex );
 }
 
  void vApplicationMallocFailedHook( void )
@@ -194,31 +134,4 @@ void Toggle_LED(void)
   GPIOA->ODR ^= RED;
 }
 
-
-void EXTILine13_Host_Config()
-{
-
-  RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN;
-  RCC->AHB1ENR           |= RCC_AHB1ENR_GPIOCEN;               // enable clock
-  MCU_IRQ_PORT->MODER   &= (uint32_t)~(GPIO_MODER_MODER13);    // input mode
-
-  SYSCFG->EXTICR[3] = SYSCFG_EXTICR4_EXTI13_PC ;
-  EXTI->IMR  |= EXTI_IMR_MR13;          // unmasked the interrupt
-  EXTI->EMR  |= EXTI_IMR_MR13;          // unmasked the interrupt
-  EXTI->FTSR |= EXTI_FTSR_TR13;         // rising edge tringger on line 13
-
-  NVIC_SetPriority(EXTI15_10_IRQn, 7);  // Enable and set EXTI Line0 Interrupt to the lowest priority
-  // NOTE: This interrupt priority shoul be less than configMAX_SYSCALL_INTERRUPT_PRIORITY
-  NVIC_EnableIRQ(EXTI15_10_IRQn);
-}
-
-
-void EXTI15_10_IRQHandler ()
-{
-  if((EXTI->PR & EXTI_PR_PR13) != RESET)
-  {
-    EXTI->PR = EXTI_PR_PR13;
-    ExternalInterrupt_callback();
-  }
-}
 
