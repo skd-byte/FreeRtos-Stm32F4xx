@@ -30,16 +30,13 @@ void GPIO_Init(void);
 void ExternalInterrupt_callback();
 void EXTILine13_Host_Config();
 
-portTASK_FUNCTION_PROTO(vEventBitSettingTask, pvParameters);
-portTASK_FUNCTION_PROTO(vEventBitReadingTask, pvParameters);
-portTASK_FUNCTION_PROTO(vInterruptGenerator, pvParameters);
+portTASK_FUNCTION_PROTO(vSyncingTask, pvParameters);
+
 
 /* Definitions for the event bits in the event group. */
-#define mainFIRST_TASK_BIT ( 1UL << 0UL )  /* Event bit 0, which is set by a task. */
-#define mainSECOND_TASK_BIT ( 1UL << 1UL ) /* Event bit 1, which is set by a task. */
-#define mainISR_BIT ( 1UL << 2UL )         /* Event bit 2, which is set by an ISR. */
-
-void vPrintStringFromDaemonTask( void *pvParameter1, uint32_t ulParameter2 );
+#define mainFIRST_TASK_BIT  ( 1UL << 0UL ) /* Event bit 0, set by the first task. */
+#define mainSECOND_TASK_BIT ( 1UL << 1UL ) /* Event bit 1, set by the second task. */
+#define mainTHIRD_TASK_BIT  ( 1UL << 2UL ) /* Event bit 2, set by the third task. */
 
 EventGroupHandle_t xEventGroup;
 
@@ -51,98 +48,68 @@ int main( void )
 
   /* Before an event group can be used it must first be created. */
   xEventGroup = xEventGroupCreate();
-
-  /* Create the task that sets event bits in the event group. */
-  xTaskCreate( vEventBitSettingTask, "Bit Setter", 1000, NULL, 1, NULL );
-
-  /* Create the task that waits for event bits to get set in the event group. */
-  xTaskCreate( vEventBitReadingTask, "Bit Reader", 1000, NULL, 2, NULL );
-
-  /* Create the task that is used to periodically generate a software interrupt. */
-  xTaskCreate( vInterruptGenerator, "Int Gen", 1000, NULL, 3, NULL );
-
+  /* Create three instances of the task. Each task is given a different name,
+  which is later printed out to give a visual indication of which task is
+  executing. The event bit to use when the task reaches its synchronization point
+  is passed into the task using the task parameter. */
+  xTaskCreate( vSyncingTask, "Task 1", 1000, (void *) mainFIRST_TASK_BIT, 1, NULL );
+  xTaskCreate( vSyncingTask, "Task 2", 1000, (void *) mainSECOND_TASK_BIT, 1, NULL );
+  xTaskCreate( vSyncingTask, "Task 3", 1000, (void *) mainTHIRD_TASK_BIT, 1, NULL );
+  /* Start the scheduler so the created tasks start executing. */
   vTaskStartScheduler();
-
-  /* The following line should never be reached. */
+  /* As always, the following line should never be reached. */
   for( ;; );
   return 0;
 }
 
-void vEventBitReadingTask( void *pvParameters )
+void vSyncingTask( void *pvParameters )
 {
-  EventBits_t xEventGroupValue;
-  const EventBits_t xBitsToWaitFor = ( mainFIRST_TASK_BIT |
-  mainSECOND_TASK_BIT | mainISR_BIT );
-
+  const TickType_t xMaxDelay = pdMS_TO_TICKS( 4000UL );
+  const TickType_t xMinDelay = pdMS_TO_TICKS( 200UL );
+  TickType_t xDelayTime;
+  EventBits_t uxThisTasksSyncBit;
+  const EventBits_t uxAllSyncBits = ( mainFIRST_TASK_BIT |
+  mainSECOND_TASK_BIT |
+  mainTHIRD_TASK_BIT );
+  /* Three instances of this task are created - each task uses a different event
+  bit in the synchronization. The event bit to use is passed into each task
+  instance using the task parameter. Store it in the uxThisTasksSyncBit
+  variable. */
+  uxThisTasksSyncBit = ( EventBits_t ) pvParameters;
   for( ;; )
   {
-    /* Block to wait for event bits to become set within the event group. */
-    xEventGroupValue = xEventGroupWaitBits( /* The event group to read. */
+    /* Simulate this task taking some time to perform an action by delaying for a
+    pseudo random time. This prevents all three instances of this task reaching
+    the synchronization point at the same time, and so allows the example’s
+    behavior to be observed more easily. */
+    xDelayTime = ( rand() % xMaxDelay ) + xMinDelay;
+    vTaskDelay( xDelayTime );
+    /* Print out a message to show this task has reached its synchronization
+    point. pcTaskGetTaskName() is an API function that returns the name assigned
+    to the task when the task was created. */
+    trace_printf( "AT Time: %d          %s  %s", xTaskGetTickCount(), pcTaskGetTaskName( NULL ), "reached sync point\n" );
+    /* Wait for all the tasks to have reached their respective synchronization
+    points. */
+    xEventGroupSync( /* The event group used to synchronize. */
     xEventGroup,
-    /* Bits to test. */
-    xBitsToWaitFor,
-    /* Clear bits on exit if the
-    unblock condition is met. */
-    pdTRUE,
-    /*This parameter is set to pdTRUE for the
-    second execution. */
-    pdTRUE,
-    /* Don't time out. */
+    /* The bit set by this task to indicate it has reached the
+    synchronization point. */
+    uxThisTasksSyncBit,
+    /* The bits to wait for, one bit for each task taking part
+    in the synchronization. */
+    uxAllSyncBits,
+    /* Wait indefinitely for all three tasks to reach the
+    synchronization point. */
     portMAX_DELAY );
-    /* Print a message for each bit that was set. */
-    if( ( xEventGroupValue & mainFIRST_TASK_BIT ) != 0 )
-    {
-      trace_printf( "Bit reading task -\t Event bit 0 was set\n" );
-    }
-    if( ( xEventGroupValue & mainSECOND_TASK_BIT ) != 0 )
-    {
-      trace_printf( "Bit reading task -\t Event bit 1 was set\n" );
-    }
-    if( ( xEventGroupValue & mainISR_BIT ) != 0 )
-    {
-      trace_printf( "Bit reading task -\t Event bit 2 was set\n" );
-    }
+    /* Print out a message to show this task has passed its synchronization
+    point. As an indefinite delay was used the following line will only be
+    executed after all the tasks reached their respective synchronization
+    points. */
+    trace_printf( "AT Time: %d          %s  %s", xTaskGetTickCount(), pcTaskGetTaskName( NULL ), "exited sync point\n" );
   }
 }
 
 
-void vInterruptGenerator( void *pvParameters )
-{
-  TickType_t xLastExecutionTime;
-
-  /* Initialize the variable used by the call to vTaskDelayUntil(). */
-  xLastExecutionTime = xTaskGetTickCount();
-  for( ;; )
-  {
-    /* This is a periodic task. Block until it is time to run again. The task
-    will execute every 200ms. */
-    vTaskDelayUntil( &xLastExecutionTime, pdMS_TO_TICKS( 200 ) );
-
-    trace_printf( "Generator task - About to generate an interrupt.\n" );
-    SW_INTERRUPT();
-    trace_printf( "Generator task - Interrupt generated.\n" );
-  }
-}
-
-void vEventBitSettingTask( void *pvParameters )
-{
-  const TickType_t xDelay200ms = pdMS_TO_TICKS( 200UL ), xDontBlock = 0;
-  for( ;; )
-  {
-    /* Delay for a short while before starting the next loop. */
-    vTaskDelay( xDelay200ms );
-    /* Print out a message to say event bit 0 is about to be set by the task,
-    then set event bit 0. */
-    trace_printf( "Bit setting task -\t about to set bit 0.\r\n" );
-    xEventGroupSetBits( xEventGroup, mainFIRST_TASK_BIT );
-    /* Delay for a short while before setting the other bit. */
-    vTaskDelay( xDelay200ms );
-    /* Print out a message to say event bit 1 is about to be set by the task,
-    then set event bit 1. */
-    trace_printf( "Bit setting task -\t about to set bit 1.\r\n" );
-    xEventGroupSetBits( xEventGroup, mainSECOND_TASK_BIT );
-  }
-}
 
 void vApplicationTickHook( void )
 {
@@ -210,32 +177,5 @@ void EXTI15_10_IRQHandler ()
 void ExternalInterrupt_callback()
 {
   Toggle_LED();
-  /* The string is not printed within the interrupt service routine, but is instead sent to the RTOS daemon task for printing. It is therefore declared static to ensure the compiler does not allocate the string on the stack of the ISR, as the ISR's stack frame will not exist when the string is printed from the daemon task. */
-  static const char *pcString = "Bit setting ISR -\t about to set bit 2.\n";
-  BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-  /* Print out a message to say bit 2 is about to be set. Messages cannot be
-  printed from an ISR, so defer the actual output to the RTOS daemon task by
-  pending a function call to run in the context of the RTOS daemon task. */
-  xTimerPendFunctionCallFromISR( vPrintStringFromDaemonTask,
-  ( void * ) pcString,
-  0,
-  &xHigherPriorityTaskWoken );
-  /* Set bit 2 in the event group. */
-  xEventGroupSetBitsFromISR( xEventGroup, mainISR_BIT, &xHigherPriorityTaskWoken );
-
-  /* xTimerPendFunctionCallFromISR() and xEventGroupSetBitsFromISR() both write to
-  the timer command queue, and both used the same xHigherPriorityTaskWoken
-  variable. If writing to the timer command queue resulted in the RTOS daemon task
-  leaving the Blocked state, and if the priority of the RTOS daemon task is higher
-  than the priority of the currently executing task (the task this interrupt
-  interrupted) then xHigherPriorityTaskWoken will have been set to pdTRUE.*/
-
-  portYIELD_FROM_ISR( xHigherPriorityTaskWoken );
 }
 
-void vPrintStringFromDaemonTask( void *pvParameter1, uint32_t ulParameter2 )
-{
-  /* Process the event - in this case just print out a message and the value of
-  ulParameter2. pvParameter1 is not used in this example. */
-  trace_printf( (char *)pvParameter1);
-}
